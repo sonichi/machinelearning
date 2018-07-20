@@ -28,7 +28,8 @@ using Microsoft.ML.Runtime.EntryPoints;
 
 namespace Microsoft.ML.Runtime.KMeans
 {
-    public class KMeansPlusPlusTrainer : TrainerBase<RoleMappedData, KMeansPredictor>
+    /// <include file='./doc.xml' path='doc/members/member[@name="KMeans++"]/*' />
+    public class KMeansPlusPlusTrainer : TrainerBase<KMeansPredictor>
     {
         public const string LoadNameValue = "KMeansPlusPlus";
         internal const string UserNameValue = "KMeans++ Clustering";
@@ -44,7 +45,7 @@ namespace Microsoft.ML.Runtime.KMeans
             KMeansParallel = 2
         }
 
-        public class Arguments : LearnerInputBase
+        public class Arguments : UnsupervisedLearnerInputBaseWithWeight
         {
             [Argument(ArgumentType.AtMostOnce, HelpText = "The number of clusters", SortOrder = 50)]
             [TGUI(SuggestedSweeps = "5,10,20,40")]
@@ -73,11 +74,6 @@ namespace Microsoft.ML.Runtime.KMeans
         }
 
         private readonly int _k;
-        private int _dimensionality;
-
-        // The coordinates of the final centroids at the end of the training. During training
-        // it holds the centroids of the previous iteration.
-        private readonly VBuffer<Float>[] _centroids;
 
         private readonly int _maxIterations; // max number of iterations to train
         private readonly Float _convergenceThreshold; // convergence thresholds
@@ -86,83 +82,69 @@ namespace Microsoft.ML.Runtime.KMeans
         private readonly InitAlgorithm _initAlgorithm;
         private readonly int _numThreads;
 
+        public override TrainerInfo Info { get; }
+        public override PredictionKind PredictionKind => PredictionKind.Clustering;
+
         public KMeansPlusPlusTrainer(IHostEnvironment env, Arguments args)
             : base(env, LoadNameValue)
         {
-            Contracts.CheckValue(args, nameof(args));
-            Contracts.CheckUserArg(args.K > 0, nameof(args.K), "Number of means must be positive");
+            Host.CheckValue(args, nameof(args));
+            Host.CheckUserArg(args.K > 0, nameof(args.K), "Must be positive");
 
             _k = args.K;
 
-            Contracts.CheckUserArg(args.MaxIterations > 0, nameof(args.MaxIterations), "Number of iterations must be positive");
+            Host.CheckUserArg(args.MaxIterations > 0, nameof(args.MaxIterations), "Must be positive");
             _maxIterations = args.MaxIterations;
 
-            Contracts.CheckUserArg(args.OptTol > 0, nameof(args.OptTol), "Tolerance must be positive");
+            Host.CheckUserArg(args.OptTol > 0, nameof(args.OptTol), "Tolerance must be positive");
             _convergenceThreshold = args.OptTol;
 
-            _centroids = new VBuffer<Float>[_k];
-
-            Contracts.CheckUserArg(args.AccelMemBudgetMb > 0, nameof(args.AccelMemBudgetMb), "Memory budget must be positive");
+            Host.CheckUserArg(args.AccelMemBudgetMb > 0, nameof(args.AccelMemBudgetMb), "Must be positive");
             _accelMemBudgetMb = args.AccelMemBudgetMb;
 
             _initAlgorithm = args.InitAlgorithm;
 
-            if (args.NumThreads.HasValue)
-            {
-                Contracts.CheckUserArg(args.NumThreads.Value > 0, nameof(args.NumThreads), "The number of threads must be either null or a positive integer.");
-            }
+            Host.CheckUserArg(!args.NumThreads.HasValue || args.NumThreads > 0, nameof(args.NumThreads),
+                "Must be either null or a positive integer.");
             _numThreads = ComputeNumThreads(Host, args.NumThreads);
+            Info = new TrainerInfo();
         }
 
-        public override bool NeedNormalization
+        public override KMeansPredictor Train(TrainContext context)
         {
-            get { return true; }
-        }
+            Host.CheckValue(context, nameof(context));
+            var data = context.TrainingSet;
 
-        public override bool NeedCalibration
-        {
-            get { return false; }
-        }
-
-        public override bool WantCaching
-        {
-            get { return true; }
-        }
-
-        public override PredictionKind PredictionKind
-        {
-            get { return PredictionKind.Clustering; }
-        }
-
-        public override void Train(RoleMappedData data)
-        {
-            Contracts.CheckValue(data, nameof(data));
-
-            data.CheckFeatureFloatVector(out _dimensionality);
-            Contracts.Assert(_dimensionality > 0);
+            data.CheckFeatureFloatVector(out int dimensionality);
+            Contracts.Assert(dimensionality > 0);
 
             using (var ch = Host.Start("Training"))
             {
-                TrainCore(ch, data);
+                var pred = TrainCore(ch, data, dimensionality);
                 ch.Done();
+                return pred;
             }
         }
 
-        private void TrainCore(IChannel ch, RoleMappedData data)
+        private KMeansPredictor TrainCore(IChannel ch, RoleMappedData data, int dimensionality)
         {
             Host.AssertValue(ch);
             ch.AssertValue(data);
 
-            // REVIEW: In high-dimensionality cases this is less than ideal
-            // and we should consider using sparse buffers.
+            // REVIEW: In high-dimensionality cases this is less than ideal and we should consider
+            // using sparse buffers for the centroids.
+
+            // The coordinates of the final centroids at the end of the training. During training
+            // it holds the centroids of the previous iteration.
+            var centroids = new VBuffer<Float>[_k];
             for (int i = 0; i < _k; i++)
-                _centroids[i] = VBufferUtils.CreateDense<Float>(_dimensionality);
+                centroids[i] = VBufferUtils.CreateDense<Float>(dimensionality);
 
             ch.Info("Initializing centroids");
             long missingFeatureCount;
             long totalTrainingInstances;
 
-            var cursorFactory = new FeatureFloatVectorCursor.Factory(data, CursOpt.Features | CursOpt.Id);
+            var cursorFactory = new FeatureFloatVectorCursor.Factory(data, CursOpt.Features | CursOpt.Id | CursOpt.Weight);
             // REVIEW: It would be nice to extract these out into subcomponents in the future. We should
             // revisit and even consider breaking these all into individual KMeans-flavored trainers, they
             // all produce a valid set of output centroids with various trade-offs in runtime (with perhaps 
@@ -170,29 +152,29 @@ namespace Microsoft.ML.Runtime.KMeans
             // pay attention to their incoming set of centroids and incrementally train.
             if (_initAlgorithm == InitAlgorithm.KMeansPlusPlus)
             {
-                KMeansPlusPlusInit.Initialize(Host, _numThreads, ch, cursorFactory, _k, _dimensionality,
-                    _centroids, out missingFeatureCount, out totalTrainingInstances);
+                KMeansPlusPlusInit.Initialize(Host, _numThreads, ch, cursorFactory, _k, dimensionality,
+                    centroids, out missingFeatureCount, out totalTrainingInstances);
             }
             else if (_initAlgorithm == InitAlgorithm.Random)
             {
                 KMeansRandomInit.Initialize(Host, _numThreads, ch, cursorFactory, _k,
-                    _centroids, out missingFeatureCount, out totalTrainingInstances);
+                    centroids, out missingFeatureCount, out totalTrainingInstances);
             }
             else
             {
                 // Defaulting to KMeans|| initialization.
-                KMeansBarBarInitialization.Initialize(Host, _numThreads, ch, cursorFactory, _k, _dimensionality,
-                    _centroids, _accelMemBudgetMb, out missingFeatureCount, out totalTrainingInstances);
+                KMeansBarBarInitialization.Initialize(Host, _numThreads, ch, cursorFactory, _k, dimensionality,
+                    centroids, _accelMemBudgetMb, out missingFeatureCount, out totalTrainingInstances);
             }
 
-            KMeansUtils.VerifyModelConsistency(_centroids);
+            KMeansUtils.VerifyModelConsistency(centroids);
             ch.Info("Centroids initialized, starting main trainer");
 
             KMeansLloydsYinYangTrain.Train(
-                Host, _numThreads, ch, cursorFactory, totalTrainingInstances, _k, _dimensionality, _maxIterations,
-                _accelMemBudgetMb, _convergenceThreshold, _centroids);
+                Host, _numThreads, ch, cursorFactory, totalTrainingInstances, _k, dimensionality, _maxIterations,
+                _accelMemBudgetMb, _convergenceThreshold, centroids);
 
-            KMeansUtils.VerifyModelConsistency(_centroids);
+            KMeansUtils.VerifyModelConsistency(centroids);
             ch.Info("Model trained successfully on {0} instances", totalTrainingInstances);
             if (missingFeatureCount > 0)
             {
@@ -200,11 +182,7 @@ namespace Microsoft.ML.Runtime.KMeans
                     "{0} instances with missing features detected and ignored. Consider using MissingHandler.",
                     missingFeatureCount);
             }
-        }
-
-        public override KMeansPredictor CreatePredictor()
-        {
-            return new KMeansPredictor(Host, _k, _centroids, copyIn: true);
+            return new KMeansPredictor(Host, _k, centroids, copyIn: true);
         }
 
         private static int ComputeNumThreads(IHost host, int? argNumThreads)
@@ -225,7 +203,12 @@ namespace Microsoft.ML.Runtime.KMeans
             return Math.Max(1, maxThreads);
         }
 
-        [TlcModule.EntryPoint(Name = "Trainers.KMeansPlusPlusClusterer", Desc = KMeansPlusPlusTrainer.Summary, UserName = UserNameValue, ShortName = ShortName)]
+        [TlcModule.EntryPoint(Name = "Trainers.KMeansPlusPlusClusterer",
+            Desc = Summary,
+            UserName = UserNameValue,
+            ShortName = ShortName,
+            XmlInclude = new[] { @"<include file='../Microsoft.ML.KMeansClustering/doc.xml' path='doc/members/member[@name=""KMeans++""]/*' />",
+                                 @"<include file='../Microsoft.ML.KMeansClustering/doc.xml' path='doc/members/example[@name=""KMeans++""]/*' />"})]
         public static CommonOutputs.ClusteringOutput TrainKMeans(IHostEnvironment env, Arguments input)
         {
             Contracts.CheckValue(env, nameof(env));
@@ -234,7 +217,8 @@ namespace Microsoft.ML.Runtime.KMeans
             EntryPointUtils.CheckInputArgs(host, input);
 
             return LearnerEntryPointsUtils.Train<Arguments, CommonOutputs.ClusteringOutput>(host, input,
-                () => new KMeansPlusPlusTrainer(host, input));
+                () => new KMeansPlusPlusTrainer(host, input),
+                getWeight: () => LearnerEntryPointsUtils.FindColumn(host, input.TrainingData.Schema, input.WeightColumn));
         }
     }
 
@@ -298,7 +282,7 @@ namespace Microsoft.ML.Runtime.KMeans
                                 // This check is only performed once, at the first pass of initialization
                                 if (dimensionality != cursor.Features.Length)
                                 {
-                                    throw Contracts.Except(
+                                    throw ch.Except(
                                         "Dimensionality doesn't match, expected {0}, got {1}",
                                         dimensionality,
                                         cursor.Features.Length);
@@ -317,7 +301,7 @@ namespace Microsoft.ML.Runtime.KMeans
                                     probabilityWeight = Math.Min(probabilityWeight, distance);
                                 }
 
-                                Contracts.Assert(FloatUtils.IsFinite(probabilityWeight));
+                                ch.Assert(FloatUtils.IsFinite(probabilityWeight));
                             }
 
                             if (probabilityWeight > 0)
@@ -349,7 +333,7 @@ namespace Microsoft.ML.Runtime.KMeans
                     // persist the candidate as a new centroid
                     if (!haveCandidate)
                     {
-                        throw Contracts.Except(
+                        throw ch.Except(
                             "Not enough distinct instances to populate {0} clusters (only found {1} distinct instances)", k, i);
                     }
 
@@ -703,13 +687,13 @@ namespace Microsoft.ML.Runtime.KMeans
             out long missingFeatureCount, out long totalTrainingInstances)
         {
             Contracts.CheckValue(host, nameof(host));
-            host.CheckValue(cursorFactory, nameof(cursorFactory));
             host.CheckValue(ch, nameof(ch));
-            host.CheckValue(centroids, nameof(centroids));
-            host.CheckUserArg(numThreads > 0, nameof(KMeansPlusPlusTrainer.Arguments.NumThreads), "Must be positive");
-            host.CheckUserArg(k > 0, nameof(KMeansPlusPlusTrainer.Arguments.K), "Must be positive");
-            host.CheckParam(dimensionality > 0, nameof(dimensionality), "Must be positive");
-            host.CheckUserArg(accelMemBudgetMb >= 0, nameof(KMeansPlusPlusTrainer.Arguments.AccelMemBudgetMb), "Must be non-negative");
+            ch.CheckValue(cursorFactory, nameof(cursorFactory));
+            ch.CheckValue(centroids, nameof(centroids));
+            ch.CheckUserArg(numThreads > 0, nameof(KMeansPlusPlusTrainer.Arguments.NumThreads), "Must be positive");
+            ch.CheckUserArg(k > 0, nameof(KMeansPlusPlusTrainer.Arguments.K), "Must be positive");
+            ch.CheckParam(dimensionality > 0, nameof(dimensionality), "Must be positive");
+            ch.CheckUserArg(accelMemBudgetMb >= 0, nameof(KMeansPlusPlusTrainer.Arguments.AccelMemBudgetMb), "Must be non-negative");
 
             int numRounds;
             int numSamplesPerRound;
@@ -774,7 +758,7 @@ namespace Microsoft.ML.Runtime.KMeans
                     VBufferUtils.Densify(ref clusters[clusterCount]);
                     clustersL2s[clusterCount] = VectorUtils.NormSquared(clusters[clusterCount]);
                     clusterPrevCount = clusterCount;
-                    Contracts.Assert(clusterCount - clusterPrevCount <= numSamplesPerRound);
+                    ch.Assert(clusterCount - clusterPrevCount <= numSamplesPerRound);
                     clusterCount++;
                     logicalExternalRounds++;
                     pCh.Checkpoint(logicalExternalRounds, numRounds + 2);
@@ -815,11 +799,11 @@ namespace Microsoft.ML.Runtime.KMeans
 
                             clusterCount++;
                         }
-                        Contracts.Assert(clusterCount - clusterPrevCount <= numSamplesPerRound);
+                        ch.Assert(clusterCount - clusterPrevCount <= numSamplesPerRound);
                         logicalExternalRounds++;
                         pCh.Checkpoint(logicalExternalRounds, numRounds + 2);
                     }
-                    Contracts.Assert(clusterCount == clusters.Length);
+                    ch.Assert(clusterCount == clusters.Length);
                 }
 
                 // Finally, we do one last pass through the dataset, finding for
@@ -838,7 +822,7 @@ namespace Microsoft.ML.Runtime.KMeans
                             clustersL2s, false, false, out discardBestWeight, out bestCluster);
 #if DEBUG
                         int debugBestCluster = KMeansUtils.FindBestCluster(ref point, clusters, clustersL2s);
-                        Contracts.Assert(bestCluster == debugBestCluster);
+                        ch.Assert(bestCluster == debugBestCluster);
 #endif
                         weights[bestCluster]++;
                     },
@@ -868,9 +852,9 @@ namespace Microsoft.ML.Runtime.KMeans
                     ref debugWeightBuffer, ref debugTotalWeights);
 
                 for (int i = 0; i < totalWeights.Length; i++)
-                    Contracts.Assert(totalWeights[i] == debugTotalWeights[i]);
+                    ch.Assert(totalWeights[i] == debugTotalWeights[i]);
 #endif
-                Contracts.Assert(totalWeights.Length == clusters.Length);
+                ch.Assert(totalWeights.Length == clusters.Length);
                 logicalExternalRounds++;
 
                 // If we sampled exactly the right number of points then we can
@@ -886,10 +870,10 @@ namespace Microsoft.ML.Runtime.KMeans
                 else
                 {
                     ArrayDataViewBuilder arrDv = new ArrayDataViewBuilder(host);
-                    arrDv.AddColumn("Features", PrimitiveType.FromKind(DataKind.R4), clusters);
-                    arrDv.AddColumn("Weights", PrimitiveType.FromKind(DataKind.R4), totalWeights);
+                    arrDv.AddColumn(DefaultColumnNames.Features, PrimitiveType.FromKind(DataKind.R4), clusters);
+                    arrDv.AddColumn(DefaultColumnNames.Weight, PrimitiveType.FromKind(DataKind.R4), totalWeights);
                     var subDataViewCursorFactory = new FeatureFloatVectorCursor.Factory(
-                        TrainUtils.CreateExamples(arrDv.GetDataView(), null, "Features", weight: "Weights"), CursOpt.Weight | CursOpt.Features);
+                        new RoleMappedData(arrDv.GetDataView(), null, DefaultColumnNames.Features, weight: DefaultColumnNames.Weight), CursOpt.Weight | CursOpt.Features);
                     long discard1;
                     long discard2;
                     KMeansPlusPlusInit.Initialize(host, numThreads, ch, subDataViewCursorFactory, k, dimensionality, centroids, out discard1, out discard2, false);
@@ -1185,13 +1169,13 @@ namespace Microsoft.ML.Runtime.KMeans
             public SharedState(FeatureFloatVectorCursor.Factory factory, IChannel ch, long baseMaxInstancesToAccelerate, int k,
                 bool isParallel, long totalTrainingInstances)
             {
-                Contracts.AssertValue(factory);
                 Contracts.AssertValue(ch);
-                Contracts.Assert(k > 0);
-                Contracts.Assert(totalTrainingInstances > 0);
+                ch.AssertValue(factory);
+                ch.Assert(k > 0);
+                ch.Assert(totalTrainingInstances > 0);
 
                 _acceleratedRowMap = new KMeansAcceleratedRowMap(factory, ch, baseMaxInstancesToAccelerate, totalTrainingInstances, isParallel);
-                Contracts.Assert(MaxInstancesToAccelerate >= 0,
+                ch.Assert(MaxInstancesToAccelerate >= 0,
                     "MaxInstancesToAccelerate cannot be negative as KMeansAcceleratedRowMap sets it to 0 when baseMaxInstancesToAccelerate is negative");
 
                 if (MaxInstancesToAccelerate > 0)
@@ -1563,12 +1547,12 @@ namespace Microsoft.ML.Runtime.KMeans
                 },
                 (Heap<WeightedPoint>[] heaps, IRandom rand, ref Heap<WeightedPoint> finalHeap) =>
                 {
-                    Contracts.Assert(finalHeap == null);
+                    host.Assert(finalHeap == null);
                     finalHeap = new Heap<WeightedPoint>((x, y) => x.Weight > y.Weight, numSamples);
                     for (int i = 0; i < heaps.Length; i++)
                     {
-                        Contracts.AssertValue(heaps[i]);
-                        Contracts.Assert(heaps[i].Count <= numSamples, "heaps[i].Count must not be greater than numSamples");
+                        host.AssertValue(heaps[i]);
+                        host.Assert(heaps[i].Count <= numSamples, "heaps[i].Count must not be greater than numSamples");
                         while (heaps[i].Count > 0)
                         {
                             var row = heaps[i].Pop();
@@ -1584,7 +1568,7 @@ namespace Microsoft.ML.Runtime.KMeans
                 }, ref buffer, ref outHeap);
 
             if (outHeap.Count != numSamples)
-                throw Contracts.Except("Failed to initialize clusters: too few examples");
+                throw host.Except("Failed to initialize clusters: too few examples");
 
             // Keep in mind that the distribution of samples in dst will not be random. It will
             // have the residual minHeap ordering.

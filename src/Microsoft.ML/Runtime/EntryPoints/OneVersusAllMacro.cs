@@ -55,13 +55,13 @@ namespace Microsoft.ML.Runtime.EntryPoints
                 ClassIndex = k,
                 Column = new[]
                 {
-                            new ML.Transforms.LabelIndicatorTransformColumn
-                            {
-                                ClassIndex = k,
-                                Name = label,
-                                Source = label
-                            }
-                        },
+                    new ML.Transforms.LabelIndicatorTransformColumn
+                    {
+                        ClassIndex = k,
+                        Name = label,
+                        Source = label
+                    }
+                },
                 Data = { VarName = node.GetInputVariable(nameof(input.TrainingData)).ToJson() }
             };
             var exp = new Experiment(env);
@@ -128,13 +128,15 @@ namespace Microsoft.ML.Runtime.EntryPoints
                     input.WeightColumn, DefaultColumnNames.Weight);
 
                 // Get number of classes
-                var data = TrainUtils.CreateExamples(input.TrainingData, label, feature, null, weight);
+                var data = new RoleMappedData(input.TrainingData, label, feature, null, weight);
                 data.CheckMultiClassLabel(out var numClasses);
                 return numClasses;
             }
         }
 
-        [TlcModule.EntryPoint(Desc = "One-vs-All macro (OVA)", Name = "Models.OneVersusAll")]
+        [TlcModule.EntryPoint(Desc = "One-vs-All macro (OVA)",
+            Name = "Models.OneVersusAll",
+            XmlInclude = new[] { @"<include file='../Microsoft.ML.StandardLearners/Standard/MultiClass/doc.xml' path='doc/members/member[@name=""OVA""]'/>" })]
         public static CommonOutputs.MacroOutput<Output> OVA(
             IHostEnvironment env,
             Arguments input,

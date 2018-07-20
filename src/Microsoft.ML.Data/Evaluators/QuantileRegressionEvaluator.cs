@@ -491,17 +491,9 @@ namespace Microsoft.ML.Runtime.Data
             ch.Info(unweightedMetrics);
         }
 
-        protected override void PrintOverallResultsCore(IChannel ch, string filename, Dictionary<string, IDataView>[] metrics)
+        protected override IDataView GetOverallResultsCore(IDataView overall)
         {
-            ch.AssertNonEmpty(metrics);
-
-            IDataView overall;
-            if (!TryGetOverallMetrics(metrics, out overall))
-                throw ch.Except("No overall metrics found");
-
-            // Show only the metrics for the requested index.
-            overall = ExtractRelevantIndex(overall);
-            MetricWriter.PrintOverallMetrics(Host, ch, filename, overall, metrics.Length);
+            return ExtractRelevantIndex(overall);
         }
 
         private IDataView ExtractRelevantIndex(IDataView data)
@@ -516,6 +508,8 @@ namespace Microsoft.ML.Runtime.Data
                     var index = _index ?? type.VectorSize / 2;
                     output = LambdaColumnMapper.Create(Host, "Quantile Regression", output, name, name, type, NumberType.R8,
                         (ref VBuffer<Double> src, ref Double dst) => dst = src.GetItemOrDefault(index));
+                    output = new ChooseColumnsByIndexTransform(Host,
+                        new ChooseColumnsByIndexTransform.Arguments() { Drop = true, Index = new[] { i } }, output);
                 }
             }
             return output;
@@ -562,7 +556,7 @@ namespace Microsoft.ML.Runtime.Data
             string name;
             MatchColumns(host, input, out label, out weight, out name);
             var evaluator = new QuantileRegressionMamlEvaluator(host, input);
-            var data = TrainUtils.CreateExamples(input.Data, label, null, null, weight, name);
+            var data = new RoleMappedData(input.Data, label, null, null, weight, name);
             var metrics = evaluator.Evaluate(data);
 
             var warnings = ExtractWarnings(host, metrics);

@@ -14,6 +14,12 @@ namespace Microsoft.ML
     public interface ILearningPipelineItem
     {
         ILearningPipelineStep ApplyStep(ILearningPipelineStep previousStep, Experiment experiment);
+
+        /// <summary>
+        /// Returns the place holder for input IDataView object for the node in the execution graph.
+        /// </summary>
+        /// <returns></returns>
+        Var<IDataView> GetInputData();
     }
 
     /// <summary>
@@ -26,7 +32,7 @@ namespace Microsoft.ML
 
     /// <summary>
     /// An item that can be added to the Learning Pipeline that can be trained and or return a IDataView.
-    /// This encapsulates an IDataView(input) and ITranformModel(output) object for a transform and
+    /// This encapsulates an IDataView(input) and ITransformModel(output) object for a transform and
     /// for a learner it will encapsulate IDataView(input) and IPredictorModel(output).
     /// </summary>
     public interface ILearningPipelineStep

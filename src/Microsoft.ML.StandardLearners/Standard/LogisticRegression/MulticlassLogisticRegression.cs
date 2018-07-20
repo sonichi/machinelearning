@@ -36,6 +36,8 @@ using Newtonsoft.Json.Linq;
 
 namespace Microsoft.ML.Runtime.Learners
 {
+    /// <include file = 'doc.xml' path='doc/members/member[@name="LBFGS"]/*' />
+    /// <include file = 'doc.xml' path='docs/members/example[@name="LogisticRegressionClassifier"]/*' />
     public sealed class MulticlassLogisticRegression : LbfgsTrainerBase<VBuffer<Float>, MulticlassLogisticRegressionPredictor>
     {
         public const string LoadNameValue = "MultiClassLogisticRegression";
@@ -65,16 +67,14 @@ namespace Microsoft.ML.Runtime.Learners
 
         private LinearModelStatistics _stats;
 
-        protected override int ClassCount { get { return _numClasses; } }
+        protected override int ClassCount => _numClasses;
 
         public MulticlassLogisticRegression(IHostEnvironment env, Arguments args)
             : base(args, env, LoadNameValue, Contracts.CheckRef(args, nameof(args)).ShowTrainingStats)
         {
         }
 
-        public override bool NeedCalibration { get { return false; } }
-
-        public override PredictionKind PredictionKind { get { return PredictionKind.MultiClassClassification; } }
+        public override PredictionKind PredictionKind => PredictionKind.MultiClassClassification;
 
         protected override void CheckLabel(RoleMappedData data)
         {
@@ -201,7 +201,7 @@ namespace Microsoft.ML.Runtime.Learners
             return InitializeWeights(srcPredictor.DenseWeightsEnumerable(), srcPredictor.BiasesEnumerable());
         }
 
-        public override MulticlassLogisticRegressionPredictor CreatePredictor()
+        protected override MulticlassLogisticRegressionPredictor CreatePredictor()
         {
             if (_numClasses < 1)
                 throw Contracts.Except("Cannot create a multiclass predictor with {0} classes", _numClasses);
@@ -844,14 +844,13 @@ namespace Microsoft.ML.Runtime.Learners
             Host.CheckValue(ctx, nameof(ctx));
 
             string opType = "LinearClassifier";
-            var node = OnnxUtils.MakeNode(opType, new List<string> { featureColumn }, new List<string>(outputs), ctx.GetNodeName(opType));
+            var node = ctx.CreateNode(opType, new[] { featureColumn }, outputs, ctx.GetNodeName(opType));
             // Selection of logit or probit output transform. enum {'NONE', 'LOGIT', 'PROBIT}
-            OnnxUtils.NodeAddAttributes(node, "post_transform", 0);
-            OnnxUtils.NodeAddAttributes(node, "multi_class", true);
-            OnnxUtils.NodeAddAttributes(node, "coefficients", _weights.SelectMany(w => w.DenseValues()));
-            OnnxUtils.NodeAddAttributes(node, "intercepts", _biases);
-            OnnxUtils.NodeAddAttributes(node, "classlabels_strings", _labelNames);
-            ctx.AddNode(node);
+            node.AddAttribute("post_transform", 0);
+            node.AddAttribute("multi_class", true);
+            node.AddAttribute("coefficients", _weights.SelectMany(w => w.DenseValues()));
+            node.AddAttribute("intercepts", _biases);
+            node.AddAttribute("classlabels_strings", _labelNames);
             return true;
         }
 
@@ -961,7 +960,12 @@ namespace Microsoft.ML.Runtime.Learners
     /// </summary>
     public partial class LogisticRegression
     {
-        [TlcModule.EntryPoint(Name = "Trainers.LogisticRegressionClassifier", Desc = "Train a logistic regression multi class model", UserName = MulticlassLogisticRegression.UserNameValue, ShortName = MulticlassLogisticRegression.ShortName)]
+        [TlcModule.EntryPoint(Name = "Trainers.LogisticRegressionClassifier",
+            Desc = Summary,
+            UserName = MulticlassLogisticRegression.UserNameValue,
+            ShortName = MulticlassLogisticRegression.ShortName,
+            XmlInclude = new[] { @"<include file='../Microsoft.ML.StandardLearners/Standard/LogisticRegression/doc.xml' path='doc/members/member[@name=""LBFGS""]/*' />",
+                                 @"<include file='../Microsoft.ML.StandardLearners/Standard/LogisticRegression/doc.xml' path='doc/members/example[@name=""LogisticRegressionClassifier""]/*' />" })]
         public static CommonOutputs.MulticlassClassificationOutput TrainMultiClass(IHostEnvironment env, MulticlassLogisticRegression.Arguments input)
         {
             Contracts.CheckValue(env, nameof(env));

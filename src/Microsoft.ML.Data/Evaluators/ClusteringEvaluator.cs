@@ -38,9 +38,9 @@ namespace Microsoft.ML.Runtime.Data
 
         public const string LoadName = "ClusteringEvaluator";
 
-        private const string Nmi = "NMI";
-        private const string AvgMinScore = "AvgMinScore";
-        private const string Dbi = "DBI";
+        public const string Nmi = "NMI";
+        public const string AvgMinScore = "AvgMinScore";
+        public const string Dbi = "DBI";
 
         private readonly bool _calculateDbi;
 
@@ -776,7 +776,7 @@ namespace Microsoft.ML.Runtime.Data
                 string feat = EvaluateUtils.GetColName(_featureCol, schema.Feature, DefaultColumnNames.Features);
                 if (!schema.Schema.TryGetColumnIndex(feat, out int featCol))
                     throw Host.ExceptUserArg(nameof(Arguments.FeatureColumn), "Features column '{0}' not found", feat);
-                yield return RoleMappedSchema.CreatePair(RoleMappedSchema.ColumnRole.Feature, feat);
+                yield return RoleMappedSchema.ColumnRole.Feature.Bind(feat);
             }
         }
 
@@ -867,7 +867,7 @@ namespace Microsoft.ML.Runtime.Data
                 nameof(ClusteringMamlEvaluator.Arguments.FeatureColumn),
                 input.FeatureColumn, DefaultColumnNames.Features);
             var evaluator = new ClusteringMamlEvaluator(host, input);
-            var data = TrainUtils.CreateExamples(input.Data, label, features, null, weight, name);
+            var data = new RoleMappedData(input.Data, label, features, null, weight, name);
             var metrics = evaluator.Evaluate(data);
 
             var warnings = ExtractWarnings(host, metrics);

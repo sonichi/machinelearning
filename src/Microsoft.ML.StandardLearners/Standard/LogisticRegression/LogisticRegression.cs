@@ -30,6 +30,8 @@ namespace Microsoft.ML.Runtime.Learners
 {
     using Mkl = Microsoft.ML.Runtime.Learners.OlsLinearRegressionTrainer.Mkl;
 
+    /// <include file='doc.xml' path='doc/members/member[@name="LBFGS"]/*' />
+    /// <include file='doc.xml' path='docs/members/example[@name="LogisticRegressionBinaryClassifier"]/*' />
     public sealed partial class LogisticRegression : LbfgsTrainerBase<Float, ParameterMixingCalibratedPredictor>
     {
         public const string LoadNameValue = "LogisticRegression";
@@ -53,9 +55,7 @@ namespace Microsoft.ML.Runtime.Learners
             _posWeight = 0;
         }
 
-        public override bool NeedCalibration { get { return false; } }
-
-        public override PredictionKind PredictionKind { get { return PredictionKind.BinaryClassification; } }
+        public override PredictionKind PredictionKind => PredictionKind.BinaryClassification;
 
         protected override void CheckLabel(RoleMappedData data)
         {
@@ -371,7 +371,7 @@ namespace Microsoft.ML.Runtime.Learners
             return InitializeWeights(pred.Weights2, new[] { pred.Bias });
         }
 
-        public override ParameterMixingCalibratedPredictor CreatePredictor()
+        protected override ParameterMixingCalibratedPredictor CreatePredictor()
         {
             // Logistic regression is naturally calibrated to
             // output probabilities when transformed using
@@ -386,7 +386,13 @@ namespace Microsoft.ML.Runtime.Learners
                 new PlattCalibrator(Host, -1, 0));
         }
 
-        [TlcModule.EntryPoint(Name = "Trainers.LogisticRegressionBinaryClassifier", Desc = "Train a logistic regression binary model", UserName = UserNameValue, ShortName = ShortName)]
+        [TlcModule.EntryPoint(Name = "Trainers.LogisticRegressionBinaryClassifier",
+            Desc = Summary,
+            UserName = UserNameValue,
+            ShortName = ShortName,
+            XmlInclude = new[] { @"<include file='../Microsoft.ML.StandardLearners/Standard/LogisticRegression/doc.xml' path='doc/members/member[@name=""LBFGS""]/*' />",
+                                 @"<include file='../Microsoft.ML.StandardLearners/Standard/LogisticRegression/doc.xml' path='doc/members/example[@name=""LogisticRegressionBinaryClassifier""]/*' />"})]
+                            
         public static CommonOutputs.BinaryClassificationOutput TrainBinary(IHostEnvironment env, Arguments input)
         {
             Contracts.CheckValue(env, nameof(env));

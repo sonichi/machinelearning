@@ -1171,18 +1171,16 @@ namespace Microsoft.ML.Runtime.Data
             ch.Info(MessageSensitivity.None, unweightedFold);
         }
 
-        protected override void PrintOverallResultsCore(IChannel ch, string filename, Dictionary<string, IDataView>[] metrics)
+        protected override IDataView GetOverallResultsCore(IDataView overall)
         {
-            ch.AssertNonEmpty(metrics);
-
-            IDataView overall;
-            if (!TryGetOverallMetrics(metrics, out overall))
-                throw ch.Except("No overall metrics found");
-
             var args = new DropColumnsTransform.Arguments();
             args.Column = new[] { BinaryClassifierEvaluator.Entropy };
-            overall = new DropColumnsTransform(Host, args, overall);
-            MetricWriter.PrintOverallMetrics(Host, ch, filename, overall, metrics.Length);
+            return new DropColumnsTransform(Host, args, overall);
+        }
+
+        protected override void PrintAdditionalMetricsCore(IChannel ch, Dictionary<string, IDataView>[] metrics)
+        {
+            ch.AssertNonEmpty(metrics);
 
             if (!string.IsNullOrEmpty(_prFileName))
             {
@@ -1228,14 +1226,7 @@ namespace Microsoft.ML.Runtime.Data
                 if (!dict.TryGetValue(BinaryClassifierEvaluator.PrCurve, out idv))
                     return false;
                 if (metrics.Length != 1)
-                {
-                    // We use the first column in the data view as an input column to the LambdaColumnMapper, because it must have an input.
-                    var inputColName = idv.Schema.GetColumnName(0);
-                    var inputColType = idv.Schema.GetColumnType(0);
-                    idv = Utils.MarshalInvoke(EvaluateUtils.AddKeyColumn<int>, inputColType.RawType, Host, idv,
-                        inputColName, MetricKinds.ColumnNames.FoldIndex, inputColType, metrics.Length, i + 1, "FoldIndex",
-                        default(ValueGetter<VBuffer<DvText>>));
-                }
+                    idv = EvaluateUtils.AddFoldIndex(Host, idv, i, metrics.Length);
                 else
                     pr = idv;
                 prList.Add(idv);
@@ -1464,7 +1455,7 @@ namespace Microsoft.ML.Runtime.Data
             string name;
             MatchColumns(host, input, out label, out weight, out name);
             var evaluator = new BinaryClassifierMamlEvaluator(host, input);
-            var data = TrainUtils.CreateExamples(input.Data, label, null, null, weight, name);
+            var data = new RoleMappedData(input.Data, label, null, null, weight, name);
             var metrics = evaluator.Evaluate(data);
 
             var warnings = ExtractWarnings(host, metrics);

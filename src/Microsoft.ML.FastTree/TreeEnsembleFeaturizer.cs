@@ -393,8 +393,7 @@ namespace Microsoft.ML.Runtime.Data
 
             public IEnumerable<KeyValuePair<RoleMappedSchema.ColumnRole, string>> GetInputColumnRoles()
             {
-                yield return new KeyValuePair<RoleMappedSchema.ColumnRole, string>(
-                    RoleMappedSchema.ColumnRole.Feature, _inputSchema.Feature.Name);
+                yield return RoleMappedSchema.ColumnRole.Feature.Bind(_inputSchema.Feature.Name);
             }
 
             public Func<int, bool> GetDependencies(Func<int, bool> predicate)
@@ -545,6 +544,7 @@ namespace Microsoft.ML.Runtime.Data
         }
     }
 
+    /// <include file='doc.xml' path='doc/members/member[@name="TreeEnsembleFeaturizerTransform"]'/>
     public static class TreeEnsembleFeaturizerTransform
     {
         public sealed class Arguments : TrainAndScoreTransform.ArgumentsBase<SignatureTreeEnsembleTrainer>
@@ -803,7 +803,11 @@ namespace Microsoft.ML.Runtime.Data
 
     public static partial class TreeFeaturize
     {
-        [TlcModule.EntryPoint(Name = "Transforms.TreeLeafFeaturizer", Desc = TreeEnsembleFeaturizerTransform.TreeEnsembleSummary, UserName = TreeEnsembleFeaturizerTransform.UserName, ShortName = TreeEnsembleFeaturizerBindableMapper.LoadNameShort)]
+        [TlcModule.EntryPoint(Name = "Transforms.TreeLeafFeaturizer", 
+            Desc = TreeEnsembleFeaturizerTransform.TreeEnsembleSummary, 
+            UserName = TreeEnsembleFeaturizerTransform.UserName, 
+            ShortName = TreeEnsembleFeaturizerBindableMapper.LoadNameShort,
+            XmlInclude = new[] { @"<include file='../Microsoft.ML.FastTree/doc.xml' path='doc/members/member[@name=""TreeEnsembleFeaturizerTransform""]'/>" })]
         public static CommonOutputs.TransformOutput Featurizer(IHostEnvironment env, TreeEnsembleFeaturizerTransform.ArgumentsForEntryPoint input)
         {
             Contracts.CheckValue(env, nameof(env));

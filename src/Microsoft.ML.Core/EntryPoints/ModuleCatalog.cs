@@ -44,6 +44,7 @@ namespace Microsoft.ML.Runtime.EntryPoints
             public readonly string Description;
             public readonly string ShortName;
             public readonly string FriendlyName;
+            public readonly string[] XmlInclude;
             public readonly MethodInfo Method;
             public readonly Type InputType;
             public readonly Type OutputType;
@@ -51,7 +52,7 @@ namespace Microsoft.ML.Runtime.EntryPoints
             public readonly Type[] OutputKinds;
             public readonly ObsoleteAttribute ObsoleteAttribute;
 
-            internal EntryPointInfo(IExceptionContext ectx, MethodInfo method, 
+            internal EntryPointInfo(IExceptionContext ectx, MethodInfo method,
                 TlcModule.EntryPointAttribute attribute, ObsoleteAttribute obsoleteAttribute)
             {
                 Contracts.AssertValueOrNull(ectx);
@@ -63,6 +64,7 @@ namespace Microsoft.ML.Runtime.EntryPoints
                 Method = method;
                 ShortName = attribute.ShortName;
                 FriendlyName = attribute.UserName;
+                XmlInclude = attribute.XmlInclude;
                 ObsoleteAttribute = obsoleteAttribute;
 
                 // There are supposed to be 2 parameters, env and input for non-macro nodes.
@@ -187,7 +189,7 @@ namespace Microsoft.ML.Runtime.EntryPoints
                     if (attr == null)
                         continue;
 
-                    var info = new EntryPointInfo(ectx, methodInfo, attr, 
+                    var info = new EntryPointInfo(ectx, methodInfo, attr,
                         methodInfo.GetCustomAttributes(typeof(ObsoleteAttribute), false).FirstOrDefault() as ObsoleteAttribute);
 
                     entryPoints.Add(info);
@@ -315,7 +317,7 @@ namespace Microsoft.ML.Runtime.EntryPoints
             Contracts.CheckParam(interfaceType.IsInterface, nameof(interfaceType), "Must be interface");
             Contracts.CheckValue(argumentType, nameof(argumentType));
 
-            component = _components.FirstOrDefault(x => x.InterfaceType == interfaceType &&  x.ArgumentType == argumentType);
+            component = _components.FirstOrDefault(x => x.InterfaceType == interfaceType && x.ArgumentType == argumentType);
             return component != null;
         }
 

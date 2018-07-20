@@ -41,13 +41,13 @@ namespace Microsoft.ML.Runtime.RunTests
 
         internal const string RawSuffix = ".raw";
         private const string LogSuffix = ".log";
-        private readonly string _baselineRootRelPath = Path.Combine("ZBaselines", BuildString); // Relative to Root.
+        private readonly string _baselineRootRelPath = Path.Combine(TestDir, "BaselineOutput", BuildString); // Relative to Root.
         private readonly string _logRootRelPath = Path.Combine("Logs", BuildString); // Relative to OutDir.
         private readonly string ScopeRootRelPath = Path.Combine("Samples", "scope"); // Root of files required for Scope related tests. Used primarily for local runs
         private readonly string TestExtDir = Path.Combine("Tests", "Ext"); // Directory with external binaries checked in. Eg libvw.dll
 
         private const string SamplesRootRelPath = @"Samples"; // Root location of Samples. Used primarily for local runs
-        private const string TestDir = @"Tests";
+        private const string TestDir = @"test";
 
         private const string DataRootRegExp = @"[a-z]:\\[^/\t ]+\\test\\data" + @"\\[^/\t ]+";
         private const string SamplesRootRegExp = @"[a-z]:\\[^/\t ]+\\Samples\\";
@@ -96,7 +96,7 @@ namespace Microsoft.ML.Runtime.RunTests
         public void Init()
         {
             // Create the output and log directories.
-            Contracts.Check(Directory.Exists(Path.Combine(RootDir, "ZBaselines")));
+            Contracts.Check(Directory.Exists(Path.Combine(RootDir, TestDir, "BaselineOutput")));
             string logDir = Path.Combine(OutDir, _logRootRelPath);
             Directory.CreateDirectory(logDir);
 
@@ -269,8 +269,8 @@ namespace Microsoft.ML.Runtime.RunTests
         private static readonly Regex _matchDateTime = new Regex(@"[0-9]{1,4}[-/][0-9]{1,2}[-/][0-9]{1,4} [0-9]{1,2}:[0-9]{1,2}:[0-9]{1,4}(\.[0-9]+)?( [AP]M)?", RegexOptions.IgnoreCase | RegexOptions.Compiled);
         private static readonly Regex _matchTime = new Regex(@"[0-9]{2}:[0-9]{2}:[0-9]{2}(\.[0-9]+)?", RegexOptions.Compiled);
         private static readonly Regex _matchShortTime = new Regex(@"\([0-9]{2}:[0-9]{2}(\.[0-9]+)?\)", RegexOptions.Compiled);
-        private static readonly Regex _matchMemory = new Regex(@"memory usage\(MB\): [0-9]+" /*(s)\: [0-9]+"*/, RegexOptions.Compiled);
-        private static readonly Regex _matchElapsed = new Regex(@"Time elapsed\(s\): [0-9.]+" /*(s)\: [0-9\.]+"*/, RegexOptions.Compiled);
+        private static readonly Regex _matchMemory = new Regex(@"memory usage\(MB\): [0-9]+", RegexOptions.Compiled);
+        private static readonly Regex _matchElapsed = new Regex(@"Time elapsed\(s\): [0-9.]+", RegexOptions.Compiled);
         private static readonly Regex _matchTimes = new Regex(@"Instances caching time\(s\): [0-9\.]+", RegexOptions.Compiled);
         private static readonly Regex _matchUpdatesPerSec = new Regex(@", ([0-9\.]+|Infinity)M WeightUpdates/sec", RegexOptions.Compiled);
         private static readonly Regex _matchParameterT = new Regex(@"=PARAM:/t:[0-9]+", RegexOptions.Compiled);
